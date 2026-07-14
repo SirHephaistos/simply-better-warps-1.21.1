@@ -3,7 +3,7 @@
 	"id": "simplybetter-warps",
 	"version": "${version}",
 	"name": "simplyBetterWarps",
-	"description": "Simple server side warp mod for Minecraft Fabric!",
+	"description": "Adds a complete warp management system that lets players and administrators create, delete, edit, and teleport to named warp points.\nIt also provides advanced permission-based visibility and access control, allowing you to define exactly who can see or teleport to each specific warp.\nAll data is synchronized through the Core’s database and API to ensure consistency across the suite",
 	"authors": [
 		"Sir Hephaistos"
 	],
@@ -23,7 +23,8 @@
 		"fabricloader": ">=0.17.2",
 		"minecraft": "~1.21.1",
 		"java": ">=21",
-		"fabric-api": "*"
+		"fabric-api": "*",
+        "simplybetter-core": "*"
 	},
 	"suggests": {
 		"another-mod": "*"

@@ -1,19 +1,18 @@
 package as.sirhephaistos;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import as.sirhephaistos.simplybetter.core.db.PositionsCrudManager;
+import as.sirhephaistos.simplybetter.core.db.WarpsCrudManager;
+import as.sirhephaistos.simplybetter.library.PositionDTO;
+import as.sirhephaistos.simplybetter.library.WarpDTO;
+import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Unmodifiable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.Reader;
-import java.io.Writer;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.HashMap;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Central registry for warps, grouped per dimension.
@@ -21,16 +20,28 @@ import java.util.Map;
  */
 public final class WarpManager {
     private static final WarpManager INSTANCE = new WarpManager();
+    private static WarpsCrudManager warpsCrudManager = null;
+    private static PositionsCrudManager positionsCrudManager = null;
     private static final Logger LOGGER = LoggerFactory.getLogger("simplybetter-warps");
-    /**
-     * Map<warpNameLower, WarpPoint>
-     */
-    private final Map<String, WarpPoint> warps = new HashMap<>();
-    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private final String fileName = "warps.json";
-    private Path file;
 
     private WarpManager() {
+    }
+
+    public static boolean init() {
+        try {
+            warpsCrudManager = SimplyBetterCoreServer.getWarpsCrudManager();
+            positionsCrudManager = SimplyBetterCoreServer.getPositionsCrudManager();
+            if (warpsCrudManager == null) {
+                throw new IllegalStateException("WarpsCrudManager is not initialized");
+            }
+            if (positionsCrudManager == null) {
+                throw new IllegalStateException("PositionsCrudManager is not initialized");
+            }
+            return true;
+        } catch (Exception e) {
+            LOGGER.error("Failed to initialize WarpManager", e);
+            throw e;
+        }
     }
 
     public static WarpManager get() {
@@ -38,88 +49,45 @@ public final class WarpManager {
     }
 
     /**
-     * Utility: normalize user-provided warp names (lowercase, trimmed).
-     */
-    private static String normalizeName(String name) {
-        return name.trim().toLowerCase(Locale.ROOT);
-    }
-
-    /**
-     * Loads warps from config/simplybetter/warps.json.
-     * If the file does not exist, it is created empty.
-     */
-    public void load() {
-        try {
-            file = Path.of("config", "simplybetter", fileName);
-            Files.createDirectories(file.getParent());
-
-            // Create empty file if it does not exist
-            if (!Files.exists(file)) {
-                try (Writer writer = Files.newBufferedWriter(file)) {
-                    writer.write("{}");
-                }
-                return;
-            }
-
-            try (Reader reader = Files.newBufferedReader(file)) {
-                JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-                warps.clear();
-                for (String name : root.keySet()) {
-                    JsonObject obj = root.getAsJsonObject(name);
-                    warps.put(name.toLowerCase(Locale.ROOT), WarpPoint.fromJson(obj));
-                }
-            }
-
-            LOGGER.info("[Simply Better Warps] Simply Better Warps has been initialized");
-        } catch (Exception e) {
-            LOGGER.error("[Simply Better Warps] Failed to load warps from {}", file.toString(), e);
-        }
-    }
-
-    /**
-     * Saves current warps to config/simplybetter/warps.json (pretty JSON).
-     * Creates directories and file if needed.
-     */
-    public void save() {
-        try {
-            file = Path.of("config", "simplybetter", fileName);
-            Files.createDirectories(file.getParent());
-
-            JsonObject root = new JsonObject();
-            for (var entry : warps.entrySet()) {
-                root.add(entry.getKey(), entry.getValue().toJson());
-            }
-
-            try (Writer writer = Files.newBufferedWriter(file)) {
-                gson.toJson(root, writer);
-            }
-            LOGGER.info("[Simply Better Warps] Simply Better Warps has been saved");
-        } catch (Exception e) {
-            LOGGER.error("[Simply Better Warps] Failed to save warps to {}", file.toString(), e);
-        }
-    }
-
-    /**
      * Sets or updates a warp point.
+     *
+     * @return
      */
-    public void setWarp(String name, WarpPoint point) {
-        String normName = normalizeName(name);
-        warps.put(normName, point);
+    public WarpDTO setWarp(String name, @Nullable Long id, @NotNull String dimensionId,
+                           double x, double y, double z , float xRot, float yRot){
+        try {
+            var createdWarp = warpsCrudManager.createWarp(name,new PositionDTO(null,dimensionId,x,y,z,xRot,yRot));
+            LOGGER.info("Set warp {} at position {} in dimension {}",name,createdWarp.position().id(),createdWarp.position().dimensionId());
+            return createdWarp;
+        } catch (Exception e) {
+            LOGGER.error("Failed to set warp {}", name, e);
+            throw e;
+        }
     }
 
     /**
      * Deletes a warp point. Returns true if deleted, false if not found.
      */
-    public boolean delWarp(String name) {
-        String normName = normalizeName(name);
-        return warps.remove(normName) != null;
+    public void delWarp(String name) {
+        try {
+            warpsCrudManager.deleteWarpByName(name);
+        } catch (Exception e) {
+            LOGGER.error("Failed to delete warp {}", name, e);
+            throw e;
+        }
     }
 
     /**
      * Lists all warps.
      */
-    public Map<String, WarpPoint> listWarps() {
-        return Map.copyOf(warps);
+    @Contract(pure = true)
+    public @NotNull @Unmodifiable Map<String,Long> listWarps() {
+        try {
+            return warpsCrudManager.getWarpsMap();
+        } catch (Exception e) {
+            LOGGER.error("Failed to list warps", e);
+            throw e;
+        }
     }
 
     /**
@@ -128,24 +96,23 @@ public final class WarpManager {
      * @param warpName Name of the warp to retrieve.
      * @return WarpPoint or null if not found.
      */
-    public WarpPoint getWarp(String warpName) {
-        String normName = normalizeName(warpName);
-        if (!warps.containsKey(normName)) {
-            throw new IllegalArgumentException("Warp " + normName + " not found");
+    public Optional<WarpDTO> getWarp(String warpName) {
+        try {
+            return warpsCrudManager.getWarpByName(warpName);
+        } catch (Exception e) {
+            LOGGER.error("Failed to get warp {}", warpName, e);
+            throw e;
         }
-        return warps.get(normName);
     }
 
     public void renameWarp(String oldName, String newName) {
-        String normOldName = normalizeName(oldName);
-        String normNewName = normalizeName(newName);
-        if (!warps.containsKey(normOldName)) {
-            throw new IllegalArgumentException("Warp " + normOldName + " not found");
+        try {
+            var warpOpt = warpsCrudManager.getWarpByName(oldName);
+            if (warpOpt.isPresent()) warpsCrudManager.renameWarp(warpOpt.get().id(), newName);
+            else LOGGER.warn("Warp {} not found for renaming", oldName);
+        } catch (Exception e) {
+            LOGGER.error("Failed to rename warp from {} to {}", oldName, newName, e);
+            throw e;
         }
-        if (warps.containsKey(normNewName)) {
-            throw new IllegalArgumentException("Warp " + normNewName + " already exists");
-        }
-        WarpPoint point = warps.remove(normOldName);
-        warps.put(normNewName, point);
     }
 }
